@@ -1,0 +1,95 @@
+name: Build and Release
+
+on:
+  push:
+    branches: [ main ]
+    tags: [ 'v*' ]
+  pull_request:
+    branches: [ main ]
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    name: Build PanicButton (MinGW C++20)
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up MinGW-w64
+        uses: egor-tensin/setup-mingw@v2
+        with:
+          platform: x64
+          version: 14.2.0
+
+      - name: Compile Resource Script
+        shell: cmd
+        run: |
+          if not exist build mkdir build
+          windres -I resources resources\app.rc -O coff -o build\app.res
+
+      - name: Build Executable
+        shell: cmd
+        run: |
+          g++ -std=c++20 -O3 -flto=auto -DNDEBUG -Wall -Wextra -Wno-unused-parameter ^
+              -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX -D_WIN32_WINNT=0x0A00 ^
+              -municode -mwindows -s -static ^
+              src\main.cpp ^
+              src\utils.cpp ^
+              src\config.cpp ^
+              src\i18n.cpp ^
+              src\audio_control.cpp ^
+              src\window_manager.cpp ^
+              src\builtin_decoys.cpp ^
+              src\decoy_manager.cpp ^
+              src\tray_icon.cpp ^
+              src\settings_ui.cpp ^
+              build\app.res ^
+              -o PanicButton.exe ^
+              -luser32 -lgdi32 -lshell32 -lole32 -loleaut32 -luuid -lcomctl32 -lcomdlg32 -ladvapi32 -ldwmapi -luxtheme -lgdiplus -lpsapi
+
+      - name: Run Core Test Suite
+        shell: cmd
+        run: |
+          g++ -std=c++20 -O3 -Wall -Wextra -Wno-unused-parameter ^
+              -DUNICODE -D_UNICODE -DWIN32_LEAN_AND_MEAN -DNOMINMAX -D_WIN32_WINNT=0x0A00 ^
+              -municode ^
+              tests\test_core.cpp ^
+              src\utils.cpp ^
+              src\config.cpp ^
+              src\i18n.cpp ^
+              src\audio_control.cpp ^
+              src\window_manager.cpp ^
+              src\builtin_decoys.cpp ^
+              -o build\test_core.exe ^
+              -luser32 -lgdi32 -lshell32 -lole32 -loleaut32 -luuid -ldwmapi -luxtheme -lgdiplus -lpsapi
+          .\build\test_core.exe
+
+      - name: Compute SHA-256 Checksum
+        shell: pwsh
+        run: |
+          $hash = (Get-FileHash -Algorithm SHA256 .\PanicButton.exe).Hash
+          "$hash  PanicButton.exe" | Out-File -FilePath .\PanicButton.exe.sha256 -Encoding ascii
+          Write-Host "Generated SHA256: $hash"
+
+      - name: Upload Build Artifacts
+        uses: actions/upload-artifact@v4
+        with:
+          name: PanicButton-Windows-x64
+          path: |
+            PanicButton.exe
+            PanicButton.exe.sha256
+
+      - name: Create GitHub Release
+        if: startsWith(github.ref, 'refs/tags/v')
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            PanicButton.exe
+            PanicButton.exe.sha256
+          generate_release_notes: true
+          draft: false
+          prerelease: false

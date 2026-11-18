@@ -1,0 +1,53 @@
+# ====================================================================
+# Git Ignore - Panic Button / Botón del Pánico (C++20 Win32)
+# ====================================================================
+
+# Compiled executables & binaries
+*.exe
+*.old.exe
+*.dll
+*.so
+*.dylib
+*.res
+*.obj
+*.o
+*.a
+*.lib
+
+# Build directories
+build/
+bin/
+out/
+dist/
+x64/
+x86/
+Debug/
+Release/
+
+# CMake temporary files
+CMakeFiles/
+CMakeCache.txt
+cmake_install.cmake
+Makefile
+*.cmake
+!CMakeLists.txt
+
+# Editor & IDE configs
+.vscode/
+.vs/
+.idea/
+*.user
+*.suo
+*.sln.docstates
+
+# Local runtime data & caches
+*.dat
+*.ini
+!config.example.ini
+panic_state.dat
+*.log
+*.tmp
+*.bak
+
+# Scratch scripts & temp test files
+scratch/
