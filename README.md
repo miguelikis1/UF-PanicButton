@@ -21,18 +21,10 @@ With a single customizable hotkey or mouse side button:
 
 ## Demonstration
 
-<!-- Replace with your animated demo or screenshots -->
-```
-+---------------------------------------------------------------------------------+
-|  [ Normal Desktop: Code, Videos, Chat ]  ===>  HOTKEY / MOUSE BUTTON TRIGGER   |
-|                                                                                 |
-|  ==> 1. All user windows hidden asynchronously in < 10 ms                       |
-|  ==> 2. Audio muted & media playback paused (WASAPI peak detection)             |
-|  ==> 3. Decoy window (e.g. Work Report / Terminal) instantly displayed          |
-|                                                                                 |
-|  ===> PRESS AGAIN ===> Exact Z-order & windows restored, playback resumed       |
-+---------------------------------------------------------------------------------+
-```
+<img width="2541" height="1479" alt="Decoy Preview " src="https://github.com/user-attachments/assets/8ff6c10c-838b-43ef-a4f6-5cd1033500f6" />
+
+<img width="2540" height="1478" alt="App preview" src="https://github.com/user-attachments/assets/ac43402a-0157-4352-8ca6-a7dfb80dab8d" />
+
 
 ---
 
