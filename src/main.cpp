@@ -15,6 +15,7 @@
 namespace {
 
 constexpr const wchar_t* kMainWndClass = L"PanicButton_MainWnd";
+constexpr const wchar_t* kRawInputClass = L"PanicButton_RawInputSink";
 constexpr const wchar_t* kMutexName = L"Local\\PanicButton_SingleInstance_v1";
 
 constexpr int kHotkeyIdPanic = 1;
@@ -102,6 +103,8 @@ private:
     }
 
     bool CreateMainWindow() {
+        // 1. Host window for tray icon and global hotkeys:
+        // Use WS_POPUP with WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE, 0x0 size, hidden, and explicitly NOTOPMOST.
         WNDCLASSEXW wc{};
         wc.cbSize = sizeof(wc);
         wc.lpfnWndProc = AppController::MainWndProc;
@@ -110,10 +113,32 @@ private:
         if (!RegisterClassExW(&wc)) return false;
 
         mainHwnd_ = CreateWindowExW(
-            0, kMainWndClass, L"PanicButton_Host",
-            0, 0, 0, 0, 0,
+            WS_EX_TOOLWINDOW | WS_EX_NOACTIVATE,
+            kMainWndClass, L"PanicButton_Host",
+            WS_POPUP, 0, 0, 0, 0,
             nullptr, nullptr, hInst_, this);
-        return mainHwnd_ != nullptr;
+        if (!mainHwnd_) return false;
+
+        ShowWindow(mainHwnd_, SW_HIDE);
+        SetWindowPos(mainHwnd_, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
+
+        // 2. Dedicated message-only window (HWND_MESSAGE) for Raw Input (Mouse side buttons).
+        // HWND_MESSAGE windows have NO Z-order, do NOT appear in Alt+Tab or DWM window trees,
+        // and can never trap or steal foreground focus from other applications.
+        WNDCLASSEXW rcwc{};
+        rcwc.cbSize = sizeof(rcwc);
+        rcwc.lpfnWndProc = AppController::RawInputWndProc;
+        rcwc.hInstance = hInst_;
+        rcwc.lpszClassName = kRawInputClass;
+        RegisterClassExW(&rcwc);
+
+        rawInputHwnd_ = CreateWindowExW(
+            0, kRawInputClass, L"",
+            0, 0, 0, 0, 0,
+            HWND_MESSAGE, nullptr, hInst_, this);
+
+        return true;
     }
 
     void UnregisterAllHotkeys() {
@@ -145,14 +170,14 @@ private:
     }
 
     void UpdateMouseTriggerRegistration() {
-        if (!mainHwnd_) return;
+        if (!rawInputHwnd_) return;
         RAWINPUTDEVICE rid[1]{};
         rid[0].usUsagePage = 0x01; // HID_USAGE_PAGE_GENERIC
         rid[0].usUsage = 0x02;     // HID_USAGE_GENERIC_MOUSE
 
         if (config_.mouseTrigger != MouseTrigger::Disabled) {
             rid[0].dwFlags = RIDEV_INPUTSINK;
-            rid[0].hwndTarget = mainHwnd_;
+            rid[0].hwndTarget = rawInputHwnd_;
             RegisterRawInputDevices(rid, 1, sizeof(RAWINPUTDEVICE));
         } else {
             rid[0].dwFlags = RIDEV_REMOVE;
@@ -316,10 +341,58 @@ private:
         decoyMgr_.Shutdown();
         settingsUi_.Destroy();
         tray_.Destroy();
+        if (rawInputHwnd_) {
+            DestroyWindow(rawInputHwnd_);
+            rawInputHwnd_ = nullptr;
+        }
         if (mainHwnd_) {
             DestroyWindow(mainHwnd_);
             mainHwnd_ = nullptr;
         }
+    }
+
+    static LRESULT CALLBACK RawInputWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
+        AppController* self = nullptr;
+        if (msg == WM_NCCREATE) {
+            auto* cs = reinterpret_cast<CREATESTRUCTW*>(lParam);
+            self = reinterpret_cast<AppController*>(cs->lpCreateParams);
+            SetWindowLongPtrW(hwnd, GWLP_USERDATA, reinterpret_cast<LONG_PTR>(self));
+            self->rawInputHwnd_ = hwnd;
+        } else {
+            self = reinterpret_cast<AppController*>(GetWindowLongPtrW(hwnd, GWLP_USERDATA));
+        }
+
+        if (self && msg == WM_INPUT) {
+            if (self->config_.mouseTrigger != MouseTrigger::Disabled) {
+                UINT dwSize = 0;
+                GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, nullptr, &dwSize, sizeof(RAWINPUTHEADER));
+                if (dwSize > 0) {
+                    alignas(RAWINPUT) BYTE rawBuf[256];
+                    BYTE* pData = (dwSize <= sizeof(rawBuf)) ? rawBuf : new BYTE[dwSize];
+                    if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, pData, &dwSize, sizeof(RAWINPUTHEADER)) == dwSize) {
+                        RAWINPUT* raw = reinterpret_cast<RAWINPUT*>(pData);
+                        if (raw->header.dwType == RIM_TYPEMOUSE) {
+                            USHORT btn = raw->data.mouse.usButtonFlags;
+                            bool triggered = false;
+                            if ((self->config_.mouseTrigger == MouseTrigger::XButton1 || self->config_.mouseTrigger == MouseTrigger::AnyXButton) &&
+                                (btn & RI_MOUSE_BUTTON_4_DOWN)) {
+                                triggered = true;
+                            }
+                            if ((self->config_.mouseTrigger == MouseTrigger::XButton2 || self->config_.mouseTrigger == MouseTrigger::AnyXButton) &&
+                                (btn & RI_MOUSE_BUTTON_5_DOWN)) {
+                                triggered = true;
+                            }
+                            if (triggered) {
+                                self->TogglePanic();
+                            }
+                        }
+                    }
+                    if (pData != rawBuf) delete[] pData;
+                }
+            }
+            return 0;
+        }
+        return DefWindowProcW(hwnd, msg, wParam, lParam);
     }
 
     static LRESULT CALLBACK MainWndProc(HWND hwnd, UINT msg, WPARAM wParam, LPARAM lParam) {
@@ -352,37 +425,6 @@ private:
                     return 0;
                 }
                 break;
-
-            case WM_INPUT: {
-                if (config_.mouseTrigger != MouseTrigger::Disabled) {
-                    UINT dwSize = 0;
-                    GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, nullptr, &dwSize, sizeof(RAWINPUTHEADER));
-                    if (dwSize > 0) {
-                        alignas(RAWINPUT) BYTE rawBuf[256];
-                        BYTE* pData = (dwSize <= sizeof(rawBuf)) ? rawBuf : new BYTE[dwSize];
-                        if (GetRawInputData(reinterpret_cast<HRAWINPUT>(lParam), RID_INPUT, pData, &dwSize, sizeof(RAWINPUTHEADER)) == dwSize) {
-                            RAWINPUT* raw = reinterpret_cast<RAWINPUT*>(pData);
-                            if (raw->header.dwType == RIM_TYPEMOUSE) {
-                                USHORT btn = raw->data.mouse.usButtonFlags;
-                                bool triggered = false;
-                                if ((config_.mouseTrigger == MouseTrigger::XButton1 || config_.mouseTrigger == MouseTrigger::AnyXButton) &&
-                                    (btn & RI_MOUSE_BUTTON_4_DOWN)) {
-                                    triggered = true;
-                                }
-                                if ((config_.mouseTrigger == MouseTrigger::XButton2 || config_.mouseTrigger == MouseTrigger::AnyXButton) &&
-                                    (btn & RI_MOUSE_BUTTON_5_DOWN)) {
-                                    triggered = true;
-                                }
-                                if (triggered) {
-                                    TogglePanic();
-                                }
-                            }
-                        }
-                        if (pData != rawBuf) delete[] pData;
-                    }
-                }
-                return DefWindowProcW(mainHwnd_, msg, wParam, lParam);
-            }
 
             case WM_TIMER:
                 if (wParam == DecoyManager::kPrewarmTimerId) {
@@ -450,6 +492,7 @@ private:
 
     HINSTANCE hInst_ = nullptr;
     HWND mainHwnd_ = nullptr;
+    HWND rawInputHwnd_ = nullptr;
     UINT taskbarCreatedMsg_ = 0;
 
     AppConfig config_;

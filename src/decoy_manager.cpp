@@ -318,6 +318,9 @@ void DecoyManager::Deactivate(const AppConfig& cfg) {
         case DecoyType::ExternalUrl: {
             if (externalHwnd_ && IsWindow(externalHwnd_)) {
                 if (cfg.decoyRestoreAction == DecoyRestoreAction::KeepHidden) {
+                    if (IsZoomed(externalHwnd_)) {
+                        ShowWindowAsync(externalHwnd_, SW_RESTORE);
+                    }
                     ShowWindowAsync(externalHwnd_, SW_HIDE);
                 } else if (cfg.decoyRestoreAction == DecoyRestoreAction::Close) {
                     PostMessageW(externalHwnd_, WM_CLOSE, 0, 0);
@@ -332,6 +335,9 @@ void DecoyManager::Deactivate(const AppConfig& cfg) {
         case DecoyType::CapturedWindow: {
             HWND h = GetCapturedWindow();
             if (h && !cfg.capturedKeepVisibleUntilPanic) {
+                if (IsZoomed(h)) {
+                    ShowWindowAsync(h, SW_RESTORE);
+                }
                 ShowWindowAsync(h, SW_HIDE);
                 capturedWasHiddenByUs_ = true;
             }

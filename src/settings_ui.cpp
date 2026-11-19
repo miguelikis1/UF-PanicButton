@@ -518,7 +518,12 @@ void SettingsWindow::Hide() {
         KillTimer(hwnd_, kAnimTimerId);
         KillTimer(hwnd_, kLiveStatsTimerId);
         animTimerRunning_ = false;
+        if (IsIconic(hwnd_) || IsZoomed(hwnd_)) {
+            ShowWindow(hwnd_, SW_RESTORE);
+        }
         ShowWindow(hwnd_, SW_HIDE);
+        SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
         SetProcessWorkingSetSize(GetCurrentProcess(), (SIZE_T)-1, (SIZE_T)-1);
     }
 }
@@ -1891,6 +1896,13 @@ LRESULT SettingsWindow::HandleMessage(UINT msg, WPARAM wParam, LPARAM lParam) {
             SetBkColor(hdc, pal.inputBgRef);
             return (LRESULT)(inputBgBrush_ ? inputBgBrush_ : GetStockObject(WHITE_BRUSH));
         }
+
+        case WM_SYSCOMMAND:
+            if ((wParam & 0xFFF0) == SC_MINIMIZE) {
+                Hide();
+                return 0;
+            }
+            break;
 
         case WM_CLOSE:
             Hide();

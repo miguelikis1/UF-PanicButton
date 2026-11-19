@@ -182,6 +182,10 @@ void BuiltinDecoyWindow::EnsureWindowCreated(HINSTANCE hInst, const AppConfig& c
             0, 0, 100, 24,
             hwnd_, nullptr, hInst, nullptr);
         SendMessageW(statusBar_, WM_SETFONT, (WPARAM)uiFont_, TRUE);
+
+        ShowWindow(hwnd_, SW_HIDE);
+        SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
     }
 
     ApplyModeAndContent(cfg);
@@ -322,7 +326,12 @@ HWND BuiltinDecoyWindow::Show(HINSTANCE hInst, const AppConfig& cfg) {
 void BuiltinDecoyWindow::Hide() {
     if (!hwnd_) return;
     KillTimer(hwnd_, kTerminalTimerId);
+    if (IsZoomed(hwnd_)) {
+        ShowWindow(hwnd_, SW_RESTORE);
+    }
     ShowWindow(hwnd_, SW_HIDE);
+    SetWindowPos(hwnd_, HWND_NOTOPMOST, 0, 0, 0, 0,
+                 SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_HIDEWINDOW);
 }
 
 void BuiltinDecoyWindow::LayoutChildren() {

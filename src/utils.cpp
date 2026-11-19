@@ -279,33 +279,36 @@ bool ForceForegroundWindow(HWND hwnd) {
 
     if (GetForegroundWindow() == hwnd) return true;
 
-    HWND fg = GetForegroundWindow();
-    DWORD curThread = GetCurrentThreadId();
-    DWORD fgThread = fg ? GetWindowThreadProcessId(fg, nullptr) : 0;
-    DWORD targetThread = GetWindowThreadProcessId(hwnd, nullptr);
-
-    bool attachedFg = false;
-    bool attachedTarget = false;
-
-    if (fgThread && fgThread != curThread) {
-        attachedFg = AttachThreadInput(curThread, fgThread, TRUE) != 0;
-    }
-    if (targetThread && targetThread != curThread && targetThread != fgThread) {
-        attachedTarget = AttachThreadInput(curThread, targetThread, TRUE) != 0;
+    // Ensure the target window is shown
+    if (!IsWindowVisible(hwnd)) {
+        ShowWindow(hwnd, SW_SHOW);
     }
 
+    // Modern clean Windows foreground unlock:
+    // A synthetic Alt keypress grants foreground activation rights without attaching thread inputs.
     AllowSetForegroundWindow(ASFW_ANY);
+    keybd_event(VK_MENU, 0, 0, 0);
+    keybd_event(VK_MENU, 0, KEYEVENTF_KEYUP, 0);
+
     BringWindowToTop(hwnd);
     BOOL ok = SetForegroundWindow(hwnd);
-    if (!ok) {
-        // Fallback: gently pulse topmost to gain Z-order foreground
-        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
-        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0, SWP_NOMOVE | SWP_NOSIZE | SWP_SHOWWINDOW);
+
+    // Fallback: brief pulse of topmost strictly without focus hijack, immediately cleared
+    if (!ok || GetForegroundWindow() != hwnd) {
+        SetWindowPos(hwnd, HWND_TOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
+        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE);
         ok = SetForegroundWindow(hwnd);
     }
 
-    if (attachedTarget) AttachThreadInput(curThread, targetThread, FALSE);
-    if (attachedFg) AttachThreadInput(curThread, fgThread, FALSE);
+    // Strict guarantee: Never leave WS_EX_TOPMOST on the window to prevent Z-order trapping
+    LONG_PTR exStyle = GetWindowLongPtrW(hwnd, GWL_EXSTYLE);
+    if (exStyle & WS_EX_TOPMOST) {
+        SetWindowLongPtrW(hwnd, GWL_EXSTYLE, exStyle & ~WS_EX_TOPMOST);
+        SetWindowPos(hwnd, HWND_NOTOPMOST, 0, 0, 0, 0,
+                     SWP_NOMOVE | SWP_NOSIZE | SWP_NOACTIVATE | SWP_FRAMECHANGED);
+    }
 
     return ok != 0;
 }

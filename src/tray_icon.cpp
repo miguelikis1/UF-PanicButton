@@ -83,11 +83,14 @@ void TrayIcon::ShowContextMenu(bool panicActive, const std::wstring& hotkeyLabel
 
     POINT pt{};
     GetCursorPos(&pt);
-    SetForegroundWindow(ownerHwnd_);
-    TrackPopupMenu(menu, TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
-                   pt.x, pt.y, 0, ownerHwnd_, nullptr);
-    PostMessageW(ownerHwnd_, WM_NULL, 0, 0);
+    // Use TPM_RETURNCMD to handle tray selection without forcing ownerHwnd_ to steal foreground
+    int cmd = TrackPopupMenu(menu, TPM_RETURNCMD | TPM_RIGHTBUTTON | TPM_BOTTOMALIGN | TPM_LEFTALIGN,
+                             pt.x, pt.y, 0, ownerHwnd_, nullptr);
     DestroyMenu(menu);
+
+    if (cmd > 0) {
+        PostMessageW(ownerHwnd_, WM_COMMAND, MAKEWPARAM(cmd, 0), 0);
+    }
 }
 
 void TrayIcon::OnTaskbarCreated() {
